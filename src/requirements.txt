@@ -1,3 +1,12 @@
+python-dotenv 
+dash==1.19.0
+dash-bootstrap-components==0.11.3
+dash-core-components==1.15.0
+dash-html-components==1.1.2
+dash-renderer==1.9.0
+dash-table==4.11.2
+Flask==1.1.2
+Flask-Compress==1.9.0
 black==21.5b1
 flake8>=3.7.9, <4.0
 ipython~=7.10
@@ -5,8 +14,6 @@ isort~=5.0
 jupyter~=1.0
 jupyter_client>=5.1, <7.0
 jupyterlab~=3.0
-kedro==0.17.5
-kedro-telemetry~=0.1.0
 nbstripout~=0.4
 pytest-cov~=2.5
 pytest-mock>=1.7.1, <2.0
