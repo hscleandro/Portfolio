@@ -9,9 +9,10 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# Main function
 @app.route('/')
 def main():
-    
+
     return Response('OK', status=200, mimetype='application/json')
 
 if __name__ == '__main__':
