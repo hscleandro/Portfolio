@@ -1,0 +1,480 @@
+---
+title: "Oilprice Forecast using GMLSS R Package"
+author: "Leandro Correa"
+date: "11/05/2023"
+output: html_document
+html_document:
+    css: oilprice.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problema de negócio
+
+Para ilustrar o uso do pacote gamlss, vamos abordar um problema de negócio interessante: a previsão probabilística do preço do petróleo com antecedência de um dia.
+
+Nesse cenário, a empresa solicitou que fornecêssemos não apenas uma previsão pontual, mas sim uma **previsão probabilística, ou seja, uma distribuição de probabilidade para os preços do petróleo**.
+
+O pacote gamlss é uma ferramenta poderosa para modelagem estatística e previsão, e pode ser encontrado em (https://cran.r-project.org/web/packages/gamlss/gamlss.pdf).
+
+O conjunto de dados que temos disponível é o 'oil dataset' dentro do pacote gamlss, onde a variável 'OILPRICE' representa nossa variável de resposta.
+
+Nosso objetivo é desenvolver um modelo preditivo para a variável 'OILPRICE' e fornecer a previsão para um dia adiante. Durante o tutorial, iremos explicar como selecionar o modelo adequado, as métricas de diagnóstico utilizadas para avaliar o desempenho do modelo, entre outros aspectos relevantes.
+
+## Carregando os pacotes necessários para análise
+
+```{r packages, message = FALSE}
+packages <- c("tidyverse","ggrepel","caret","knitr","kableExtra",
+              "splines","reshape2","PerformanceAnalytics","correlation","see",
+              "ggraph","nortest","rgl","car","ggside","olsrr",
+              "jtools","ggstance","GGally","cowplot","Rcpp",
+              "gamlss","gamlss.add","gamlss.dist")
+
+sapply(packages, require, character.only = TRUE)
+```
+
+## Funções e variáveis globais
+
+```{r mape}
+# It's a metric used to evaluate the accuracy of prediction models or estimates.
+mape <- function(y, yhat) {
+  mean(abs((y - yhat) / y)) * 100
+}
+
+remove_corr <- function(df, pred_variables, cut_off = 0.85) {
+  # Calculate correlation matrix
+  cor_matrix <- cor(df %>% dplyr::select(-one_of(pred_variables)))  
+  
+  # Find indices of variables with correlation > cut_off
+  high_cor <- findCorrelation(cor_matrix, cutoff = cut_off)  
+  
+  # Remove highly correlated columns
+  df_filtered <- df[,-high_cor]  
+  
+  df_filtered <- cbind(df_filtered, df[,pred_variables])
+  
+  return(df_filtered)
+}
+
+# Number of observations that will be part of the validation set. 
+# 25 days is the approximate number of days in a month, excluding weekends.
+VALID_DATASET_SIZE <- 25
+
+# K is a required penalty for the GAIC function.
+K_SET <- c(2, 2.5, 3, 3.5, 4)
+```
+
+## Carregamento dos dados
+
+O conjunto de dados "oilprice" contém informações sobre o valor do preço do petróleo em diferentes períodos. Abaixo a descrição de cada variável que compõe o dataset.
+
+Para obter mais informações sobre o conjunto de dados "oilprice", consulte Stasinopoulos et al., 2015, p. 413.
+
+```{r loading}
+# Loading oil price Data
+data(oil)
+```
+
+![](/home/leandro/Downloads/oil_dataset.jpg)
+
+## Pré-processamento
+
+Como premissa para o desenvolvimento do problema, consideramos o cenário em que conseguimos obter todas as informações que desejamos utilizar como variáveis explicativas com um atraso de um dia (d-1).
+
+
+Por esse motivo, criamos um segundo conjunto de dados (df) considerando todas as variáveis explicativas com um deslocamento de período de tempo d-1. Dessa forma, cada valor de OILPRICE é representado pelos valores das variáveis independentes no período de tempo anterior. Esse mesmo princípio também é aplicado à variável respLAG, que já representa a variável OILPRICE com um dia de atraso. Após este procedimento temos a variável de resposta OILPRICE contendo os valores atuais do preço do petroleo, OILPRICE.1 passa a representar o valor de OILPRICE a partir do dia d-1, LagResp a partir do dia d-2 e todas as outras variáveis, conforme descrito na seção 'carregamento dos dados', também apresentam um atraso igual a d-1.
+
+```{r df}
+# One-time unit shift process
+df <- data.frame(OILPRICE = oil[-1, "OILPRICE"], oil[-nrow(oil),])
+
+# Checking data consistency
+glimpse(df) 
+```
+
+### Identificando e removendo features com alta correlação
+
+Antes de realizar qualquer modelagem utilizando GLM (Generalized Linear Models), é recomendado identificar e remover variáveis explicativas com alta correlação. Abaixo listamos alguns dos principais motivos:
+
+1. Redundância de informações: Variáveis altamente correlacionadas podem fornecer informações semelhantes ao modelo, o que pode levar a uma redundância desnecessária. Isso pode aumentar a complexidade do modelo sem adicionar informações significativas.
+
+2. Instabilidade dos coeficientes: Quando duas variáveis estão altamente correlacionadas, é possível que o modelo atribua pesos excessivos a uma delas, enquanto a outra pode ter um peso próximo a zero. Isso pode levar a instabilidade nos coeficientes estimados e dificultar a interpretação dos resultados.
+
+3. Violação de pressupostos: A alta correlação entre variáveis pode violar pressupostos de independência dos erros, o que pode levar a resultados incorretos ou enviesados na modelagem. 
+
+A função chart.Correlation mostra a distribuição do dataset df, bem como o índice de correlação entre as variáveis explicativas do problema.
+
+```{r correlation, out.width = "2800px", out.height = "1000px", warning = FALSE}
+chart.Correlation((df[2:ncol(df)]), histogram = TRUE)
+```
+
+Como é possível observar no gráfico acima, há várias variáveis que apresentam um alto grau de correlação (basta verificar que, por exemplo, quanto maior o tamanho do número no triângulo superior da matriz, maior é o grau de correlação entre as variáveis). Com o objetivo de mitigar esse problema, realizamos a análise da correlação de Pearson entre as variáveis explicativas e aplicamos um limiar de 85% para remover as variáveis que apresentavam uma correlação alta. 
+
+```{r rem_correlation, warning = FALSE}
+
+# Selecting variables that do not have high correlation 
+df <- remove_corr(df, pred_variables = c("OILPRICE","OILPRICE.1")) 
+exp_variables <- colnames(df)[colnames(df) %nin% "OILPRICE"]
+
+summary(df) 
+``` 
+Ao final, as variáveis: CL14_log, CL15_log, HO1_log, USCI_log, GNR_log, FTSE_log, respLAG e OILPRICE.1 apresentaram um índice de correlação dentro do threshold estipulado e foram selecionadas para a fase de construção do modelo.
+                                
+
+### Particionando os dados entre treino e teste
+
+Na fase de particionamento dos dados, selecionamos as últimas 25 linhas do conjunto de dados df (ou seja, os últimos 25 dias) para o nosso conjunto de validação. Além disso, selecionamos também a última linha do conjunto de dados oil para nossa previsão probabilistica do dia d+1.
+
+As 25 observações selecionadas foram utilizadas somente para simular o comportamento do modelo considerando uma previsão dentro de um intervalo de aproximadamente um mês (excluindo os finais de semana) e não para aferir qualidade de ajuste do modelo aos dados. 
+
+**É importante ressaltar que, para modelos determinísticos, como no caso de modelos GLM que são obtidos por meio da otimização de uma função de verossimilhança de densidade de probabilidade, não é necessário dividir os dados em conjuntos de treinamento e teste. Ao fazer uma estratificação treino e teste com um percentual muito alto em modelos GLM, como no caso do padrão 70-30 comumente aplicado, pode ocorrer viés nos parâmetros identificados como betas da função.**
+
+```{r rtrain_test, warning = FALSE}
+
+# Set the size of training and validation sets 
+train_size <- nrow(df) - VALID_DATASET_SIZE 
+
+# Create the training and validation sets 
+train_data <- df[1:train_size, ] 
+valid_data <- df[(train_size+ 1):nrow(df), ]
+
+# Identifying the explanatory variables of the day ahead forecast 
+predict_test <- oil[nrow(oil), ] %>%  
+dplyr::rename(OILPRICE.1 = OILPRICE) %>%  
+dplyr::select(one_of(exp_variables))
+
+```
+
+## Estimando a distribuição de melhor ajuste
+
+Após a fase de pré-processamento dos dados e a identificação das correlações entre as variáveis explicativas, damos início ao o uso do pacote "gamlss". O primeiro passo nessa etapa é selecionar a família de distribuição adequada para a variável de resposta "OILPRICE". A função "fitDist()", disponibilizada pelo pacote, utiliza um conjunto de distribuições predefinidas para ajuste aos dados e escolhe a melhor distribuição com base no critério de informação generalizado de Akaike (GAIC), com uma penalidade padrão de κ = 2. A ordem dos modelos ajustados é exibida de forma crescente, ou seja, do "melhor" para o "pior" (Stasinopoulos et al., 2015, p. 155-156).
+
+
+**Considerando o nosso conjunto de treinamento, a distribuição SHASH (sinh-arcsinh) foi a melhor opção para o ajuste da distribuição à variável OILPRICE.**
+
+```{r fitDist, warning = FALSE, message = FALSE, error = FALSE,  comment=NA, results='hide'}
+fitted_dist <- fitDist(OILPRICE, data=train_data, type="realline")
+
+```
+
+```{r fitDist_dist }
+fitted_dist$fits
+
+```
+
+```{r hist_dist, fig.align='center', warning = FALSE}
+histDist(train_data$OILPRICE,"SHASH",nbins=30, n.cyc=100)
+```
+
+
+
+## Procedimento Stepwise
+
+O procedimento stepwise é uma abordagem comumente utilizada na análise de regressão para selecionar um conjunto ótimo de variáveis explicativas (preditoras) para um modelo de regressão. Ele é usado para determinar quais variáveis têm um impacto significativo na variável de resposta e devem ser incluídas no modelo. O pacote gamlss propõe duas estratégias A e B, explicadas com mais detahes no livro. Aplicamos as duas estratégias ao problema para identificar qual das duas gera o melhor ajuste, considerando o índice GAIC como critério de validação. 
+
+### stepGAICAll.A
+
+A função stepGAICAll.A(), do pacote gamlss, é uma estratégia para selecionar termos aditivos utilizando o GAIC para todos os parâmetros de distribuição, pressupondo uma distribuição de resposta específica (Stasinopoulos et al., 2015, p. 397). Aplicamos a estratégia stepGAICAll.A utilizando a família de distribuição SHASH previamente identificada.
+
+```{r nc_FORM }
+# Set number of cpu's, General Formulation, and k set for GAIC estimation
+nC<-detectCores()
+FORM<-as.formula(paste("~",paste(paste(paste("(",
+                                             names(df)[-1], sep=""),")",sep=""),
+                                 collapse="+")))
+
+```
+
+```{r stepGAICAll_A, warning = FALSE, message = FALSE, error = FALSE, comment=NA, results='hide'}
+# Creating a null model (without explanatory variables) that will serve as a baseline for the stepGAICAll.A method
+m0 <- gamlss(OILPRICE~1,family=SHASH,data=train_data,gd.tol=Inf)
+```
+
+```{r stepGAICAll_A_rs, warning = FALSE, message = FALSE, error = FALSE, comment=NA, results='hide'}
+# Executing the stepGAICAll.A method considering the explanatory variables of the problem and the SHASH distribution family.
+mStraA.SHASH.rs <- stepGAICAll.A(m0, scope=list(lower=~1,
+                                                upper=FORM),
+                                 ncpus=nC,k=sqrt(log(dim(train_data)[1])))
+```
+
+* Observando os parâmetros identificados pelo procedimento stepGAICAll.A.
+```{r stepGAICAll_A_summary}
+summary(mStraA.SHASH.rs)
+```
+
+**É importante verificar se os valores de p (p-values) de todos os coeficientes estimados (Mu, Sigma e Tau) estão dentro do intervalo de confiança estatística (< 0.05). É válido lembrar também que o intercepto sempre permanece como parâmetro da função e que os índices AIC e GAIC são parâmetros utilizados para avaliar o ajuste do modelo aos dados da variável de resposta.**
+
+Buscando aprimorar o ajuste do modelo, o pacote gamlss oferece algumas funções de suavização (smoothers) com o objetivo de capturar padrões gerais e tendências nos dados, reduzindo o ruído e a variabilidade aleatória. A seguir, reajustamos o mesmo modelo identificado pela função stepGAICAll_A(), incorporando ajustes de parâmetros por meio da função de suavização p-spline pb() (Stasinopoulos et al., 2015, p. 16).
+
+```{r refit_mStraA, comment=NA}
+mStraA.SHASH.2.rs = gamlss(formula = OILPRICE ~ pb(OILPRICE.1) + pb(respLAG) +
+                             pb(HO1_log) + pb(GNR_log),
+                           sigma.formula = ~pb(OILPRICE.1),
+                           nu.formula = ~pb(USCI_log),
+                           tau.formula = ~1,
+                           family = SHASH,
+                           data = train_data,
+                           gd.tol = Inf,
+                           trace = FALSE,
+                           method=RS(20))
+```
+
+Percebe-se após a execução da última célula que existe uma mensagem de alerta indicando que o algoritmo RS não convergiu. Os algoritmos especificados como parâmetros na variável "method" são os estimadores operacionais utilizados para identificar os coeficientes com base na máxima verossimilhança da função de distribuição de probabilidade do parâmetro "family". O pacote "gamlss" conta com três abordagens diferentes de maximização: RS, CG e MX.
+
+Abaixo, executamos as três abordagens e ao final identificamos o melhor ajuste com base no menor índice GAIC.
+
+* Utilizando o algorithmo CG (veja Stasinopoulos et al., 2015, p. 70)
+```{r cg_mStraA}
+
+
+mStraA.SHASH.2.cg <- gamlss(formula = OILPRICE ~ pb(OILPRICE.1) + pb(respLAG) +
+                              pb(HO1_log) + pb(GNR_log),
+                            sigma.formula = ~pb(OILPRICE.1),
+                            nu.formula = ~pb(USCI_log),
+                            tau.formula = ~1,
+                            family = SHASH,
+                            data = train_data,
+                            gd.tol = Inf,
+                            trace = FALSE,
+                            method=CG(20))
+```
+
+* Utilizando o algorithmo MX (veja Stasinopoulos et al., 2015, p. 197).
+```{r mx_mStraA}
+# using the mixed algorithm
+mStraA.SHASH.2.mx <- gamlss(formula = OILPRICE ~ pb(OILPRICE.1) + pb(respLAG) +
+                              pb(HO1_log) + pb(GNR_log),
+                            sigma.formula = ~pb(OILPRICE.1),
+                            nu.formula = ~pb(USCI_log),
+                            tau.formula = ~1,
+                            family = SHASH,
+                            data = train_data,
+                            gd.tol = Inf,
+                            trace = FALSE,
+                            method=mixed(10,10))
+```
+
+### stepGAICAll.B
+
+Da mesma maneira que aplicamos a estratégia stepGAICAll.A, vamos aplicar a estratégia stepGAICAll.B. Nesta estratégia, todos os parâmetros de distribuição são obrigados a terem os mesmos termos. Ou seja, se um termo X for selecionado, ele será incluído no preditor de todos os parâmetros (Stasinopoulos et al., 2015, p. 399-400). Ao final, pretendemos comparar as estratégias A e B para obter o modelo de melhor ajuste.
+
+```{r stepGAICAll_B, warning = FALSE, message = FALSE, error = FALSE, comment=NA, results='hide'}
+m0 <- gamlss(OILPRICE~1,family=SHASH,data=train_data,gd.tol=Inf)
+```
+
+```{r stepGAICAll_B_rs, warning = FALSE, message = FALSE, error = FALSE, comment=NA, results='hide'}
+mStratB.SHASH.rs <-stepGAICAll.B(m0, scope=list(lower=~1,
+                                             upper=FORM),
+                                 ncpus=nC,k=sqrt(log(dim(train_data)[1])))
+```
+
+Observing the parameters identified by the stepGAICAll.B procedure.
+```{r stepGAICAll_B_summary}
+summary(mStratB.SHASH.rs)
+```
+Vale ressaltar que alguns dos coeficientes estimados no procedimento stepwise B ficaram fora do intervalo de confiança (p-value < 0.05). No entanto, a remoção desses coeficientes que estão além do nível de significância estatística não teve impacto no ajuste do modelo. Levando em consideração que todos os modelos serão comparados ao final da análise e que faremos uma etapa de diagnóstico para avaliar o ajuste dos dados, decidimos manter a configuração indicada pelo procedimento stepwise B.
+
+
+* Na célula abaixo Treinamos um novo modelo incluindo um suavizador para os parâmetros selecionados pelo procedimento stepGAICAll.B.
+
+```{r refit_mStraB, comment=NA}
+mStratB.SHASH.2.rs = gamlss(formula = OILPRICE ~ pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                           sigma.formula = ~pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                           nu.formula = ~pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                           tau.formula = ~pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                           family = SHASH,
+                           data = train_data,
+                           gd.tol = Inf,
+                           trace = FALSE,
+                           method=RS(20))
+```
+
+* Executamos um novo modelo incluindo um suavizador para os parâmetros selecionados pelo procedimento stepGAICAll.B, além de testar os algorithmos CG, MX e RS.
+```{r cg_mx_mStraB}
+# using the CG algorithm
+mStratB.SHASH.2.gc = gamlss(formula = OILPRICE ~ pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                            sigma.formula = ~pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                            nu.formula = ~pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                            tau.formula = ~pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                            family = SHASH,
+                            data = train_data,
+                            gd.tol = Inf,
+                            trace = FALSE,
+                            method=CG(20))
+
+# using the mixed algorithm
+mStratB.SHASH.2.mx = gamlss(formula = OILPRICE ~ pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                            sigma.formula = ~pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                            nu.formula = ~pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                            tau.formula = ~pb(OILPRICE.1) + pb(respLAG) + pb(USCI_log),
+                            family = SHASH,
+                            data = train_data,
+                            gd.tol = Inf,
+                            trace = FALSE,
+                            method=mixed(10,10))
+```
+
+## Selecionando o modelo com o índice GAIC mais baixo
+Após a fase de stepwise considerando suavização dos estimadores identificados e diferentes estratégias de máxima verossimilhança, partimos para fase de seleção de modelo com o melhor ajuste a partir do índice GAIC.
+
+O índice GAIC (Generalized Akaike Information Criterion) envolve a combinação do valor do logaritmo da função de verossimilhança do modelo ajustado e um termo de penalização k, que leva em consideração o número de parâmetros estimados no modelo.
+
+A fórmula geral para o cálculo do GAIC é a seguinte:
+
+GAIC = -2 * log(L) + k * p
+
+Onde:
+
+L é o valor da função de verossimilhança do modelo ajustado;
+p é o número de parâmetros estimados no modelo; e
+k é o termo de penalização.
+
+Abaixo comparamos todos os modelos estimados a partir do procedimento stepwise (A e B), e analisamos os índices GAIC de cada um desses modelos considerando diferentes termos de penalidade.
+
+```{r gaic_mStraA, warning = FALSE, comment=NA}
+# Check, using different k , which model is the best
+df_gaic = data_frame()
+for(k in K_SET){
+  df_aux <- GAIC(mStraA.SHASH.rs,
+                 mStraA.SHASH.2.rs,
+                 mStraA.SHASH.2.cg,
+                 mStraA.SHASH.2.mx,
+                 mStratB.SHASH.2.rs,
+                 mStratB.SHASH.2.gc,
+                 mStratB.SHASH.2.mx,
+                 k=k)
+  rownames(df_aux) <- paste0(rownames(df_aux), "_k", k)
+  df_gaic <- rbind(df_gaic, df_aux)
+}
+```
+
+```{r gaic_mStraA_plot, warning = FALSE, comment=NA}
+df_gaic %>% arrange(AIC)
+```
+
+##### **Como resultado final, considerando os valores de GAIC para os cenários de penalização (2, 2.5, 3, 3.5, 4), o modelo mStratB.SHASH.2.mx foi selecionado como aquele que melhor se ajusta aos dados da variável OILPRICE.**
+
+
+## Diagnostic plots
+Na fase de diagnóstico, utilizaremos algumas funções gráficas do pacote gamlss para analisar o ajuste dos dados do modelo desenvolvido à variável de resposta OILPRICE. O pacote fornece uma variedade de visualizações dos resultados do ajuste, selecionamos três destas visualizaćões para conduzir esta etapa do pipeline de análises.
+
+### Residual plot()
+
+A função plot() produz quatro gráficos para verificar os resíduos quantílicos normalizados (aleatorizados) de um modelo gamlss. A aleatorização é realizada para variáveis de resposta discretas e mistas, bem como para dados de intervalo ou censurados. Os quatro gráficos gerados pela função são:<br>
+• resíduos em relação aos valores ajustados do parâmetro µ;<br>
+• resíduos em relação a um índice ou covariável especificada;<br>
+• uma estimativa de densidade do núcleo dos resíduos;<br>
+• QQ-normal plot dos resíduos (Stasinopoulos et al., 2015, p. 422-423). <br>
+
+```{r diagnostic, warning = FALSE}
+# Residual plots from the fitted normal model mStratB.SHASH.2.mx
+plot(mStratB.SHASH.2.mx)
+```
+
+O gráfico resultante do nosso modelo considerando a variável de resposta OILPRICE mostrado acima é muito semelhante à Figura 12.3 apresentada em (Stasinopoulos et al., 2015, p. 424). Observe que os resíduos se comportam bem, pois os dois primeiros gráficos: (1) dos resíduos em relação aos valores ajustados de µ e (2) em relação aos índices das observações, mostram uma dispersão aleatória ao redor da linha horizontal em 0, enquanto a estimativa de densidade do núcleo dos resíduos é aproximadamente normal (gráfico 3) e o gráfico de Q-Q normal (4) é aproximadamente linear (com interceptação em 0 e inclinação em 1).<br><br>
+Ao analisar também as estatísticas resumidas dos resíduos quantílicos (output abaixo da figura), vemos que sua média é aproximadamente zero, que sua variância é aproximadamente um, que seu coeficiente de assimetria (baseado em momentos) está próximo de zero, e que seu coeficiente de curtose (baseado em momentos) está próximo de 3. As estatísticas sugerem que os resíduos estão aproximadamente distribuídos de forma normal (r ∼ N(0, 1)), como deveriam ser para um modelo adequado. Além disso, o coeficiente de correlação de Filliben (ou o coeficiente de correlação do gráfico de probabilidade normal) está próximo de 1.
+
+### Worm plot()
+
+O gráfico worm plot mostra o quão distantes os resíduos estão de seus valores esperados. As duas curvas elípticas no gráfico representam os intervalos de confiança aproximados de 95%. Se mais de 5% dos pontos estiverem fora das curvas, ou se houver uma clara divergência da linha horizontal, o modelo é inadequado para explicar a variável de resposta. A curva ajustada aos pontos do worm reflete diferentes inadequações no modelo. Por exemplo, se o nível de pontos do gráfico estiver acima de uma linha horizontal na origem, isso indica que a média dos resíduos é muito alta. O capítulo 12 do livro de Stasinopoulos et al., (2015) explica em detalhes como interpretar um worm plot.
+
+
+```{r diagnostic_wp, warning = FALSE}
+# Residual plots from the fitted normal model mStratB.SHASH.2.mx
+wp(mStratB.SHASH.2.mx)
+```
+
+Como mostra o gráfico acima, a maioria das observações está dentro da região de "aceitação" entre as duas curvas elípticas, indicando que o modelo se ajusta bem no geral. No entanto, há uma distorção na parte direita do gráfico, onde os pontos apresentam uma maior distância da linha horizontal. Isso sugere que a média dos resíduos no final das observações tende a ser maior, indicando uma perda de ajuste nessa região.
+
+### Worm dtop()
+A função dtop() verifica visualmente o ajuste de um modelo construindo um intervalo de confiança não paramétrico para uma função de distribuição verdadeira, com base na função de distribuição empírica da amostra. O gráfico de Owen transformado e sem tendência (DTOP) é aplicado aos resíduos quantílicos normalizados ajustados do modelo para verificar sua adequação (Stasinopoulos et al., 2015, p. 433-434).
+
+```{r dtop, warning = FALSE}
+dtop(mStratB.SHASH.2.mx)
+```
+
+Uma vez que a linha horizontal de cada gráfico DTOP está dentro das faixas de confiança de 95%, concluímos que os resíduos normalizados poderiam ter vindo de uma distribuição normal e, consequentemente, a distribuição assumida da variável de resposta (SHASH) é razoável.
+
+### Ajuste do modelo considerando a variável respLAG 
+
+Abaixo está uma representação do ajuste do modelo considerando a variável "respLAG", apenas para visualização do comportamento da função identificada.
+
+```{r sel_model_respLAG, warning = FALSE}
+plot(OILPRICE~respLAG, col="lightblue", data=train_data)
+lines(fitted(mStratB.SHASH.2.mx)[order(train_data$OILPRICE)]~
+        train_data$OILPRICE[order(train_data$OILPRICE)])
+```
+
+
+## Avaliação
+
+Avaliamos o modelo considerando primeiramente a previsão no intervalo de um mês útil (25 dias), com um nível de significância de 95%.
+
+```{r evaluation_1, warning = FALSE, comment=NA, results='hide'}
+# Prediction
+test_df = valid_data[-1]
+test_df$pred <- predict(mStratB.SHASH.2.mx, newdata = test_df, interval = "prediction", level = 0.95)
+test_df$OILPRICE <- valid_data$OILPRICE
+```
+
+* Calculando o erro percentual médio absoluto das previsões.
+```{r evaluation_2, warning = FALSE}
+# Deviation calculation
+test_df['MAPE'] <- apply(test_df, 1, function(x) mape(x['OILPRICE'], x['pred']))
+test_df[,c('OILPRICE','pred','MAPE')] %>% arrange(MAPE)
+```
+
+* Identificando a margem de desvio da previsão considerando uma probabilidade de 95%.
+
+```{r evaluation_deviation, warning = FALSE}
+deviation_margin <- quantile(test_df[,'MAPE'], probs = 0.95)
+print(paste0("95% of the predicted values are in a +-",round(deviation_margin,2),"% deviagion margin to real values."))
+```
+
+##### **Considerando os parâmetros de entrada obtidos no dia d, forneceremos uma previsão probabilística para um dia à frente (d+1), com uma margem de erro de +-1,66%, com 95% de confiança.**
+
+## Resultados
+
+##### **Resultado da previsão para o próximo dia:**
+Já identificamos a margem de erro com intervalo de confianća de 95%, agora vamos fazer a previsão do dia d+1. Abaixo os valores das variáveis explicativas que serviram de suporte para previsão.
+```{r evaluation_pread_head, warning = FALSE}
+# input parameters (last line of oil dataset)
+print(predict_test)
+```
+
+* Fazendo a previsão pontual do valor de OILPRICE para d+1.
+```{r evaluation_pread_head_2, warning = FALSE, comment=NA, results='hide'}
+pred.day_ahead <- predict(mStratB.SHASH.2.mx, newdata= predict_test, type = "response")
+```
+```{r evaluation_pread_head_3, warning = FALSE}
+print(paste0("The predicted value for the d+1 OILPRICE variable is: ", round(pred.day_ahead,6)))
+```
+
+E por fim vamos gerar uma uma estimativa de densidade de probabilidade com base nos valores preditos para variável OILPRICE considerando o conjunto prediction_test. Isso vai nos dar uma distribuição de probabilidade para os preços do petróleo para a previsão do próximo dia.
+
+```{r evaluation_pread_head_4, warning = FALSE, comment=NA, results='hide'}
+pred.prob <-predictAll(mStratB.SHASH.2.mx,newdata=predict_test)
+```
+
+A curva de probabilidade é obtida adicionando novos casos ao conjunto de dados e o modelo é reajustado para todos os casos (incluindo obtidos no treinamento e os novos adicionados). É importante observar que a extrapolação (adição de novos casos) deve ser evitada ou tratada com cautela, como discutido na Seção 5.4.1 de Stasinopoulos et al., (2015).
+```{r evaluation_pread_prob, warning = FALSE}
+pdf.plot(mu=pred.prob$mu, 
+         sigma=pred.prob$sigma, 
+         nu=pred.prob$nu, 
+         tau=pred.prob$tau, 
+         family=SHASH, 
+         min=3.45, 
+         max= 3.8, step=0.001)
+```
+
+O eixo x do gráfico representa os valores preditos para a variável de resposta (no caso, "y"), enquanto o eixo y representa a função de densidade de probabilidade correspondente a esses valores preditos. A função de densidade de probabilidade fornece informações sobre a probabilidade de ocorrer cada valor de y, levando em consideração a distribuição especificada pelo modelo. Em casos em que a curva da distuibuição é mais pontuda, como no nosso exemplo, isso é indicativo de uma menor dispersão e uma maior concentração dos valores preditos em torno de um valor médio ou esperado, o que indica uma boa estimativa.
+
+## Considerações finais
+
+Se você chegou até aqui, parabéns! O objetivo deste post não é apenas fornecer uma visão geral do pacote gamlss do R, mas também comentar e destacar alguns pontos importantes sobre o processo de análise de regressão linear que são frequentemente negligenciados em análises de mercado. Espero que o objetivo tenha sido alcançado e, se tiver algum comentário, correção, ajuste ou sujestão, por favor entre em contato pelo **hscleandro@gmail.com**.
+
+## Bibliografia
+
+STASINOPOULOS, Mikis et al. Flexible regression and smoothing: **The GAMLSS packages in R. GAMLSS for Statistical Modelling.** GAMLSS for Statistical Modeling, 2015.
