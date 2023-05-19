@@ -38,4 +38,4 @@ Link: [sentiment analysis on twitter](https://github.com/hscleandro/Portfolio/tr
 
 ## Acknowledgments
 
-* Data Science Academy class [DSA](https://www.datascienceacademy.com.br/)
+* Data Science Academy class [DSA](https://www.datascienceacademy.com.br/), that served as a basis for improving problems of propensity to purchase and sentiment analysis.
