@@ -1,5 +1,4 @@
 # Portfolio of projects
-![](https://img.shields.io/badge/last%20edited-19--05--2023-yellow.svg)
 ![](https://img.shields.io/badge/author-Leandro%20Corrêa-blue.svg)
 
 ## Overview
@@ -10,6 +9,7 @@ If any of these projects pique your interest or if you have ideas for new initia
 ## Projects
 
 ### E-commerce propensity purchase based on Google Analytics Data
+![](https://img.shields.io/badge/last%20edited-10--01--2021-yellow.svg)
 
 #### Business Problem:
 Build a predictive model to identify the user's propensity to purchase, based on browsing behavior metrics obtained from Google Analytics.
@@ -21,6 +21,7 @@ Six prediction models were built and compareted using user browsing behavior dat
 Link: [Propensity purchase based on GA](https://github.com/hscleandro/Portfolio/tree/main/notebooks/propensity_purchase_ga)
 
 ### Sentiment analysis on Twitter using Apache streaming
+![](https://img.shields.io/badge/last%20edited-01--02--2022-yellow.svg)
 
 #### Business Problem:
 To create a proof of concept for evaluating the behavior of terms or keywords related to a specific aspect of a product within the Twitter social media platform. During the development phase, the stakeholder was involved in promoting a product within a Brazilian television show, and Twitter served as the primary feedback channel for the marketing team to assess the product's reception in an open environment. The evaluation process was conducted manually, with marketing professionals monitoring Twitter during the product's airing on the show (during evening and late-night hours), using intuitive judgment to gauge the brand's impression.
@@ -33,7 +34,7 @@ Link: [sentiment analysis on twitter](https://github.com/hscleandro/Portfolio/tr
 
 ## Author
 
-* **Leandro Corrêa** - Computer Scientis and Specilist Anlytics - [twitter](https://twitter.com/leandrohsc)
+* **Leandro Corrêa** - Computer Scientis and Specilist Anlytics - [Twitter profile](https://twitter.com/leandrohsc)
 
 ## Acknowledgments
 
