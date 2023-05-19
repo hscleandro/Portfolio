@@ -30,7 +30,7 @@ To create a proof of concept for evaluating the behavior of terms or keywords re
 To develop a real-time data analysis tool with an embedded sentiment classifier that can retrieve posts related to specific keywords and provide sentiment analysis for each post with a known accuracy margin. The tool aims to streamline the process of monitoring and evaluating public sentiment on Twitter, enabling the marketing team to gain actionable insights into the brand's perception and acceptance during the program's broadcast.
 
 #### Access address to the code and further development details:
-Link: [sentiment analysis on twitter](https://github.com/hscleandro/Portfolio/tree/main/notebooks/sentiment_analysis_twitter)
+Link: [Sentiment analysis on twitter](https://github.com/hscleandro/Portfolio/tree/main/notebooks/sentiment_analysis_twitter)
 
 ## Author
 
