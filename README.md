@@ -9,6 +9,17 @@ If any of these projects pique your interest or if you have ideas for new initia
 
 ## Projects
 
+### E-commerce propensity purchase based on Google Analytics Data
+
+#### Business Problem:
+Build a predictive model to identify the user's propensity to purchase, based on browsing behavior metrics obtained from Google Analytics.
+
+#### Proposed Solution:
+Six prediction models were built and compareted using user browsing behavior data from a [public e-commerce website](https://archive.ics.uci.edu/ml/datasets/Online+Shoppers+Purchasing+Intention+Dataset), as input information (1-SVM with Linear Kernel; 2- SVM with RBF Kernel; 3-SVM with Polynomial Kernel; 4-Random Forest; 5-LightGBM and 6-Adaa Boost). The response variable considered was whether or not the user's browsing behavior resulted in a purchase (binary output). Data preprocessing, class balancing, and standardization procedures were performed to improve the results. At the end of the experiment, the best model achieved an accuracy of 93.24%, indicating the probability of a user making a purchase or not in the e-commerce based on their browsing behavior data collected through Google Analytics.
+
+#### Access address to the code and further development details:
+Link: [Propensity purchase based on GA](https://github.com/hscleandro/Portfolio/tree/main/notebooks/propensity_purchase_ga)
+
 ### Sentiment analysis on Twitter using Apache streaming
 
 #### Business Problem:
@@ -20,7 +31,10 @@ To develop a real-time data analysis tool with an embedded sentiment classifier 
 #### Access address to the code and further development details:
 Link: [sentiment analysis on twitter](https://github.com/hscleandro/Portfolio/tree/main/notebooks/sentiment_analysis_twitter)
 
-
 ## Author
 
 * **Leandro Corrêa** - Computer Scientis and Specilist Anlytics - [twitter](https://twitter.com/leandrohsc)
+
+## Acknowledgments
+
+* Data Science Academy class [DSA](https://www.datascienceacademy.com.br/)
